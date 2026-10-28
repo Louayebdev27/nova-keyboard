@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nova Keyboard</string>
+    <string name="ocr_title">Text from image</string>
+    <string name="voice_unavailable">No speech recogniser found on this device</string>
+    <string name="clip_empty">Nothing copied yet</string>
+    <string name="sticker_empty">No stickers yet. Add images from the Nova Keyboard app.</string>
+    <string name="sticker_unsupported">This app does not accept images from keyboards</string>
+</resources>
