@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package app.novakeys.ui
 
@@ -6,18 +6,30 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Book
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.novakeys.data.Backup
 import app.novakeys.data.Predictors
@@ -55,27 +68,32 @@ fun ShortcutsScreen(onBack: () -> Unit) {
     var text by remember { mutableStateOf("") }
 
     Page("Text shortcuts", onBack) {
-        Text(
-            "Type the short code and press space. The keyboard swaps it for the full text.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        )
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(trigger, { trigger = it.filter { c -> !c.isWhitespace() } }, label = { Text("Short code (e.g. omw)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(text, { text = it }, label = { Text("Full text (e.g. On my way!)") }, modifier = Modifier.fillMaxWidth())
-            Button(enabled = trigger.isNotBlank() && text.isNotBlank(), onClick = {
-                store.put(trigger, text); trigger = ""; text = ""; version++
-            }) { Text("Add shortcut") }
-        }
-        SectionHeader("Your shortcuts (${items.size})")
-        items.forEach { (k, v) ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(k, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(v, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+        SettingsGroup("New shortcut", note = "Type the short code and press space. The keyboard swaps it for the full text.") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    trigger, { trigger = it.filter { c -> !c.isWhitespace() } }, label = { Text("Short code (e.g. omw)") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(text, { text = it }, label = { Text("Full text (e.g. On my way!)") }, modifier = Modifier.fillMaxWidth())
+                FilledTonalButton(enabled = trigger.isNotBlank() && text.isNotBlank(), onClick = {
+                    store.put(trigger, text); trigger = ""; text = ""; version++
+                }) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                    Text("  Add shortcut")
                 }
-                TextButton(onClick = { store.remove(k); version++ }) { Text("Delete") }
+            }
+        }
+        SettingsGroup("Your shortcuts (${items.size})") {
+            if (items.isEmpty()) EmptyState(Icons.Rounded.Bolt, "No shortcuts yet. Add your first one above.")
+            items.forEachIndexed { i, (k, v) ->
+                if (i > 0) GroupDivider()
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(k, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(v, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton(onClick = { store.remove(k); version++ }) { Icon(Icons.Rounded.Delete, "Delete $k") }
+                }
             }
         }
     }
@@ -96,35 +114,44 @@ fun DictionaryScreen(onBack: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
 
     Page("Personal dictionary", onBack) {
-        SettingChoice("Language", langs.map { it to (Layouts.languageNames[it] ?: it) }, lang) { lang = it }
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(newWord, { newWord = it }, label = { Text("Add a word") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = newWord.isNotBlank(), onClick = { predictor.addWord(newWord); newWord = ""; version++ }) { Text("Add") }
-                OutlinedButton(enabled = words.isNotEmpty(), onClick = { confirmClear = true }) { Text("Forget everything") }
+        if (langs.size > 1) {
+            SettingsGroup {
+                SettingChoice(null, langs.map { it to (Layouts.languageNames[it] ?: it) }, lang) { lang = it }
             }
         }
-        SectionHeader("Learned words (${words.size})")
-        if (words.isEmpty()) {
-            Text("Nothing learned yet. Words you type will show up here.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp))
-        }
-        words.take(300).forEach { w ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(w, Modifier.weight(1f))
-                TextButton(onClick = { predictor.removeWord(w); version++ }) { Text("Remove") }
+        SettingsGroup("Add a word") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(newWord, { newWord = it }, label = { Text("Word") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                FilledTonalButton(enabled = newWord.isNotBlank(), onClick = { predictor.addWord(newWord); newWord = ""; version++ }) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                    Text("  Add")
+                }
             }
         }
-        if (words.size > 300) Text("Showing the first 300.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+        SettingsGroup("Learned words (${words.size})", note = if (words.size > 300) "Showing the first 300." else null) {
+            if (words.isEmpty()) EmptyState(Icons.Rounded.Book, "Nothing learned yet. Words you type will show up here.")
+            words.take(300).forEachIndexed { i, w ->
+                if (i > 0) GroupDivider()
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(w, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    IconButton(onClick = { predictor.removeWord(w); version++ }) { Icon(Icons.Rounded.Close, "Remove $w") }
+                }
+            }
+            if (words.isNotEmpty()) {
+                GroupDivider()
+                TextButton(onClick = { confirmClear = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text("Forget everything", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
     }
 
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text("Forget everything?") },
-        text = { Text("This removes every word the keyboard learned for ${Layouts.languageNames[lang] ?: lang}.") },
-        confirmButton = { TextButton(onClick = { predictor.clearLearned(); confirmClear = false; version++ }) { Text("Forget") } },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+    if (confirmClear) ConfirmDialog(
+        "Forget everything?",
+        "This removes every word the keyboard learned for ${Layouts.languageNames[lang] ?: lang}.",
+        "Forget",
+        onConfirm = { predictor.clearLearned(); confirmClear = false; version++ },
+        onDismiss = { confirmClear = false },
     )
 }
 
@@ -143,24 +170,28 @@ fun StickersScreen(onBack: () -> Unit) {
     }
 
     Page("Stickers", onBack) {
-        Text(
-            "Add your own pictures. Open the Tools menu on the keyboard, tap Stickers, and send them to any app that accepts images from keyboards.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        )
-        Button(onClick = { picker.launch("image/*") }, Modifier.padding(horizontal = 20.dp)) { Text("Add images") }
-        SectionHeader("Your stickers (${files.size})")
-        androidx.compose.foundation.layout.FlowRow(
-            Modifier.padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            files.forEach { f ->
-                val bmp = remember(f.path) {
-                    runCatching { BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = 4 }) }.getOrNull()
-                }
-                Box(Modifier.size(92.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                    if (bmp != null) Image(bmp.asImageBitmap(), null, Modifier.size(92.dp).padding(6.dp), contentScale = ContentScale.Fit)
-                    TextButton(onClick = { store.delete(f); version++ }, Modifier.align(Alignment.TopEnd)) { Text("✕") }
+        SettingsGroup(note = "Open the Tools menu on the keyboard, tap Stickers, and send them to any app that accepts images from keyboards.") {
+            FilledTonalButton(onClick = { picker.launch("image/*") }, modifier = Modifier.padding(16.dp)) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Text("  Add images")
+            }
+        }
+        SettingsGroup("Your stickers (${files.size})") {
+            if (files.isEmpty()) EmptyState(Icons.Rounded.EmojiEmotions, "No stickers yet.")
+            else FlowRow(
+                Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                files.forEach { f ->
+                    val bmp = remember(f.path) {
+                        runCatching { BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = 4 }) }.getOrNull()
+                    }
+                    Box(Modifier.size(92.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface)) {
+                        if (bmp != null) Image(bmp.asImageBitmap(), null, Modifier.size(92.dp).padding(8.dp), contentScale = ContentScale.Fit)
+                        IconButton(onClick = { store.delete(f); version++ }, Modifier.align(Alignment.TopEnd).size(32.dp)) {
+                            Icon(Icons.Rounded.Close, "Delete sticker", Modifier.size(16.dp))
+                        }
+                    }
                 }
             }
         }
@@ -182,17 +213,18 @@ fun BackupScreen(onBack: () -> Unit) {
     }
 
     Page("Backup and restore", onBack) {
-        Text(
-            "A backup is one file with your settings, custom themes, shortcuts and personal dictionary. " +
-                "You choose where it is saved. Nothing is uploaded anywhere.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        )
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingsGroup(
+            "What is included",
+            note = "Background photos and stickers are not included. You choose where the file is saved. Nothing is uploaded anywhere.",
+        ) {
+            Text(
+                "Settings, custom themes, shortcuts and your personal dictionary, in one file.",
+                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp),
+            )
+        }
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = { save.launch("nova-keyboard-backup.json") }, Modifier.fillMaxWidth()) { Text("Save a backup file") }
             OutlinedButton(onClick = { load.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) { Text("Restore from a backup file") }
-            Text("Background photos are not included in backups. Stickers are not included either.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 

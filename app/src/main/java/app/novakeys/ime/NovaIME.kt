@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
@@ -37,17 +38,21 @@ import app.novakeys.feature.KeyFeedbackImpl
 import app.novakeys.feature.OcrActivity
 import app.novakeys.feature.StyledText
 import app.novakeys.feature.VoiceActivity
+import app.novakeys.keyboard.IconView
 import app.novakeys.keyboard.Key
 import app.novakeys.keyboard.KeyAction
 import app.novakeys.keyboard.KeyboardActionListener
 import app.novakeys.keyboard.KeyboardView
 import app.novakeys.keyboard.Layouts
+import app.novakeys.keyboard.ToolIcon
 import app.novakeys.theme.KeyboardTheme
 import app.novakeys.theme.ThemeStore
 import app.novakeys.ui.MainActivity
 import java.io.File
 
 class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
+
+    private companion object { const val BAR_HEIGHT_DP = 44 }
 
     private lateinit var prefs: Prefs
     private lateinit var themes: ThemeStore
@@ -62,7 +67,8 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
     private var kbd: KeyboardView? = null
     private var bar: LinearLayout? = null
     private val slots = ArrayList<TextView>()
-    private var toolsButton: TextView? = null
+    private var toolsButton: IconView? = null
+    private val dividers = ArrayList<View>()
     private var panel: View? = null
     private var theme: KeyboardTheme? = null
     private var bgCacheKey: String? = null
@@ -90,6 +96,15 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** Standard Android touch ripple, so suggestion slots and the tools button react to taps. */
+    private fun applyRipple(v: View) {
+        val tv = TypedValue()
+        // getTheme() is the Android context theme; `theme` is this class's own keyboard theme.
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true) && tv.resourceId != 0) {
+            v.setBackgroundResource(tv.resourceId)
+        }
+    }
 
     // ---- lifecycle --------------------------------------------------------------------------
 
@@ -125,25 +140,32 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
         val suggestionBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
         }
-        val tools = TextView(this).apply {
-            text = "⋯"
-            gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+        val tools = IconView(this, ToolIcon.MORE, Color.GRAY, 0.5f).apply {
+            contentDescription = "Tools"
+            applyRipple(this)
             setOnClickListener { showPanel(Panels(this@NovaIME, currentTheme(), this@NovaIME, panelHeight()).tools()) }
         }
-        suggestionBar.addView(tools, LinearLayout.LayoutParams(dp(48), dp(42)))
+        suggestionBar.addView(tools, LinearLayout.LayoutParams(dp(48), dp(BAR_HEIGHT_DP)))
         slots.clear()
-        repeat(3) {
+        dividers.clear()
+        repeat(3) { i ->
+            if (i > 0) {
+                val divider = View(this)
+                dividers += divider
+                suggestionBar.addView(divider, LinearLayout.LayoutParams(dp(1), dp(20)))
+            }
             val tv = TextView(this).apply {
                 gravity = Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                setPadding(dp(6), 0, dp(6), 0)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                setPadding(dp(8), 0, dp(8), 0)
+                applyRipple(this)
             }
             slots += tv
-            suggestionBar.addView(tv, LinearLayout.LayoutParams(0, dp(42), 1f))
+            suggestionBar.addView(tv, LinearLayout.LayoutParams(0, dp(BAR_HEIGHT_DP), 1f))
         }
         val frame = FrameLayout(this).apply { clipChildren = false; clipToPadding = false }
         val keyboard = KeyboardView(this).apply {
@@ -151,7 +173,7 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
             feedback = this@NovaIME.feedback
         }
         frame.addView(keyboard, FrameLayout.LayoutParams(-1, -2))
-        rootLayout.addView(suggestionBar, LinearLayout.LayoutParams(-1, dp(42)))
+        rootLayout.addView(suggestionBar, LinearLayout.LayoutParams(-1, dp(BAR_HEIGHT_DP)))
         rootLayout.addView(frame, LinearLayout.LayoutParams(-1, -2))
 
         root = rootLayout; bar = suggestionBar; content = frame; kbd = keyboard; toolsButton = tools
@@ -233,8 +255,9 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
         kbd?.setTheme(t, bgBitmap)
         bar?.setBackgroundColor(t.background)
         root?.setBackgroundColor(t.background)
-        toolsButton?.setTextColor(t.specialTextColor)
+        toolsButton?.tint = t.specialTextColor
         slots.forEach { it.setTextColor(t.textColor) }
+        dividers.forEach { it.setBackgroundColor((t.hintColor and 0x00FFFFFF) or 0x59000000) }
     }
 
     private fun applySettingsToView() {
@@ -459,6 +482,8 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
         slots.forEachIndexed { i, tv ->
             val s = list.getOrNull(i)
             tv.text = s ?: ""
+            // The first guess is the one most likely wanted, so it carries the weight.
+            tv.setTypeface(null, if (i == 0 && quickChips.isEmpty()) Typeface.BOLD else Typeface.NORMAL)
             tv.setOnClickListener(if (s == null) null else View.OnClickListener { pickSuggestion(s) })
         }
     }
@@ -531,6 +556,8 @@ class NovaIME : InputMethodService(), KeyboardActionListener, PanelHost {
     }
 
     override fun activeStyle(): String? = styleId
+
+    override fun oneHandedState(): Int = prefs.oneHanded
 
     override fun toggleOneHanded() {
         prefs.oneHanded = when (prefs.oneHanded) { 0 -> 2; 2 -> 1; else -> 0 }

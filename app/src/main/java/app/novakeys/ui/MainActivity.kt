@@ -20,11 +20,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val prefs = app.novakeys.data.Prefs.get(this)
+        // Already fully set up (e.g. reinstall): never show the wizard.
+        if (isEnabled(this) && isDefault(this)) prefs.onboardingDone = true
+        val start = if (prefs.onboardingDone) "home" else "onboarding"
         setContent {
             NovaTheme {
                 val nav = rememberNavController()
                 val back: () -> Unit = { nav.popBackStack() }
-                NavHost(nav, startDestination = "home") {
+                NavHost(nav, startDestination = start) {
+                    composable("onboarding") {
+                        OnboardingScreen(resumeTick, onDone = {
+                            if (!nav.popBackStack("home", inclusive = false)) {
+                                nav.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+                            }
+                        })
+                    }
                     composable("home") { HomeScreen(resumeTick, onNavigate = { nav.navigate(it) }) }
                     composable("themes") { ThemeGalleryScreen(onBack = back, onEdit = { nav.navigate("designer/$it") }) }
                     composable("designer/{id}") { entry ->

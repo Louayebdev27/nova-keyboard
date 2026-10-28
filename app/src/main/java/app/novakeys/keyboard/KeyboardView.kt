@@ -201,7 +201,9 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawKey(c: Canvas, kr: KeyRect, pressed: Boolean) {
         val key = kr.key
         val r = dp(theme.keyRadiusDp)
-        val accent = key.action == KeyAction.ENTER || key.action == KeyAction.EQUALS
+        val shiftOn = key.action == KeyAction.SHIFT && shiftState != 0
+        // Enter, "=" and an active Shift all light up in the accent colour.
+        val accent = key.action == KeyAction.ENTER || key.action == KeyAction.EQUALS || shiftOn
         val base = when {
             accent -> theme.accentColor
             key.isSpecial && key.action != KeyAction.SPACE -> theme.specialKeyColor
@@ -237,7 +239,6 @@ class KeyboardView(context: Context) : View(context) {
 
         when (key.action) {
             KeyAction.SHIFT -> {
-                iconPaint.color = if (shiftState != 0) theme.accentColor else ink
                 KeyIcons.draw(c, KeyAction.SHIFT, cx, cy, iconSize, iconPaint, active = shiftState != 0, locked = shiftState == 2)
             }
             KeyAction.BACKSPACE, KeyAction.EMOJI, KeyAction.VOICE, KeyAction.LANG, KeyAction.CLIP, KeyAction.TOOLS ->

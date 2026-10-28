@@ -1,15 +1,15 @@
 package app.novakeys.ime
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -21,6 +21,8 @@ import app.novakeys.data.ClipboardStore
 import app.novakeys.data.EmojiData
 import app.novakeys.data.StickerStore
 import app.novakeys.feature.StyledText
+import app.novakeys.keyboard.IconView
+import app.novakeys.keyboard.ToolIcon
 import app.novakeys.theme.KeyboardTheme
 import java.io.File
 
@@ -36,6 +38,8 @@ interface PanelHost {
     fun toggleStyle(styleId: String)
     fun activeStyle(): String?
     fun toggleOneHanded()
+    /** 0 = off, 1 = left hand, 2 = right hand. */
+    fun oneHandedState(): Int
     fun selectAll()
 }
 
@@ -64,26 +68,60 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
         if (bold) typeface = Typeface.DEFAULT_BOLD
     }
 
+    /** Dims a view while it is held down, so every tappable thing answers the finger. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun <T : View> T.pressable(onClick: () -> Unit): T {
+        setOnClickListener { onClick() }
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> v.alpha = 0.55f
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.alpha = 1f
+            }
+            false
+        }
+        return this
+    }
+
     private fun chip(label: String, selected: Boolean, onClick: () -> Unit) = text(label, 15f,
         if (selected) theme.accentTextColor else theme.specialTextColor).apply {
         setPadding(dp(14), dp(7), dp(14), dp(7))
         background = rounded(if (selected) theme.accentColor else theme.keyColor, 18f)
-        setOnClickListener { onClick() }
+        pressable(onClick)
     }
 
-    /** Top bar with a back button, a title and an optional trailing button. */
+    /** A round tappable icon with a key-coloured background. */
+    private fun iconButton(icon: ToolIcon, description: String, sizeDp: Int = 40, onClick: () -> Unit): View =
+        IconView(ctx, icon, theme.specialTextColor).apply {
+            background = rounded(theme.keyColor, sizeDp / 2f)
+            contentDescription = description
+            layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+            pressable(onClick)
+        }
+
+    private fun pill(label: String, onClick: () -> Unit) = text(label, 14f, theme.specialTextColor).apply {
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        background = rounded(theme.keyColor, 18f)
+        pressable(onClick)
+    }
+
+    /** Top bar: a back button, a title, and an optional trailing control. */
     private fun header(title: String, trailing: View? = null): LinearLayout = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(4))
-        addView(text("ABC", 15f, theme.accentColor, true).apply {
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = rounded(theme.keyColor, 14f)
-            setOnClickListener { host.closePanel() }
-        })
+        addView(iconButton(ToolIcon.BACK, "Back to keyboard") { host.closePanel() })
         addView(text(title, 16f, theme.textColor, true), LinearLayout.LayoutParams(0, -2, 1f))
         if (trailing != null) addView(trailing)
-        else addView(View(ctx), LinearLayout.LayoutParams(dp(56), 1))
+        else addView(View(ctx), LinearLayout.LayoutParams(dp(40), 1))
+    }
+
+    private fun emptyState(icon: ToolIcon, message: String, hint: String? = null): View = LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(30), dp(28), dp(30), 0)
+        addView(IconView(ctx, icon, theme.hintColor, 0.6f), LinearLayout.LayoutParams(dp(56), dp(56)))
+        addView(text(message, 15f, theme.specialTextColor).apply { setPadding(0, dp(8), 0, 0) })
+        if (hint != null) addView(text(hint, 13f, theme.hintColor).apply { setPadding(0, dp(4), 0, 0) })
     }
 
     // ---- Emoji -----------------------------------------------------------------------------
@@ -92,7 +130,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
         val r = root()
         val grid = GridLayout(ctx).apply { columnCount = 8 }
         val scroll = ScrollView(ctx).apply { addView(grid) }
-        val tabs = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabs = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(8), 0, dp(8), dp(4)) }
         val tabScroll = HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(tabs) }
 
         fun fill(list: List<String>) {
@@ -103,7 +141,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
                     text = e
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
                     gravity = Gravity.CENTER
-                    setOnClickListener {
+                    pressable {
                         host.commit(e)
                         EmojiData.pushRecent(ctx, e)
                     }
@@ -127,12 +165,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
                 })
             }
         }
-        val del = text("⌫", 18f, theme.specialTextColor).apply {
-            setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = rounded(theme.keyColor, 14f)
-            setOnClickListener { host.backspace() }
-        }
-        r.addView(header("Emoji", del))
+        r.addView(header("Emoji", iconButton(ToolIcon.BACKSPACE, "Delete") { host.backspace() }))
         r.addView(tabScroll)
         r.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         renderTabs()
@@ -151,7 +184,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
             list.removeAllViews()
             val items = store.all()
             if (items.isEmpty()) {
-                list.addView(text(ctx.getString(R.string.clip_empty), 15f, theme.hintColor).apply { setPadding(0, dp(40), 0, 0) })
+                list.addView(emptyState(ToolIcon.CLIP, ctx.getString(R.string.clip_empty), "Copy some text and it will show up here"))
                 return
             }
             items.forEach { item ->
@@ -159,32 +192,28 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     background = rounded(theme.keyColor, 12f)
-                    setPadding(dp(14), dp(10), dp(6), dp(10))
-                    setOnClickListener { host.commit(item.text) }
+                    setPadding(dp(14), dp(4), dp(4), dp(4))
+                    minimumHeight = dp(48)
+                    pressable { host.commit(item.text) }
                 }
                 row.addView(text(item.text.replace('\n', ' '), 15f).apply {
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     maxLines = 2
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(0, -2, 1f))
-                row.addView(text(if (item.pinned) "📌" else "📍", 16f, theme.hintColor).apply {
-                    alpha = if (item.pinned) 1f else 0.4f
-                    setPadding(dp(10), dp(6), dp(10), dp(6))
-                    setOnClickListener { store.togglePin(item); render() }
-                })
-                row.addView(text("✕", 15f, theme.hintColor).apply {
-                    setPadding(dp(10), dp(6), dp(10), dp(6))
-                    setOnClickListener { store.remove(item); render() }
-                })
+                row.addView(IconView(ctx, ToolIcon.PIN, if (item.pinned) theme.accentColor else theme.hintColor, 0.42f).apply {
+                    filled = item.pinned
+                    contentDescription = if (item.pinned) "Unpin" else "Pin"
+                    pressable { store.togglePin(item); render() }
+                }, LinearLayout.LayoutParams(dp(44), dp(44)))
+                row.addView(IconView(ctx, ToolIcon.CLOSE, theme.hintColor, 0.36f).apply {
+                    contentDescription = "Remove"
+                    pressable { store.remove(item); render() }
+                }, LinearLayout.LayoutParams(dp(44), dp(44)))
                 list.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
             }
         }
-        val clear = text("Clear", 14f, theme.specialTextColor).apply {
-            setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = rounded(theme.keyColor, 14f)
-            setOnClickListener { store.clearUnpinned(); render() }
-        }
-        r.addView(header("Clipboard", clear))
+        r.addView(header("Clipboard", pill("Clear") { store.clearUnpinned(); render() }))
         r.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         render()
         return r
@@ -197,7 +226,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
         val files = store.all()
         r.addView(header("Stickers"))
         if (files.isEmpty()) {
-            r.addView(text(ctx.getString(R.string.sticker_empty), 15f, theme.hintColor).apply { setPadding(dp(30), dp(40), dp(30), 0) })
+            r.addView(emptyState(ToolIcon.STICKER, "No stickers yet", "Add images in the Nova Keyboard app"))
             return r
         }
         val grid = GridLayout(ctx).apply { columnCount = 4 }
@@ -208,7 +237,7 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
                 setImageBitmap(BitmapFactory.decodeFile(f.path, opts))
-                setOnClickListener { host.commitSticker(f) }
+                pressable { host.commitSticker(f) }
             }, GridLayout.LayoutParams().apply { width = cell; height = cell })
         }
         r.addView(ScrollView(ctx).apply { addView(grid) }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -221,39 +250,44 @@ class Panels(private val ctx: Context, private val theme: KeyboardTheme, private
         val r = root()
         val body = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(4), dp(12), dp(12)) }
 
-        fun tile(icon: String, label: String, onClick: () -> Unit) = LinearLayout(ctx).apply {
+        fun tile(icon: ToolIcon, label: String, sub: String?, onClick: () -> Unit) = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = rounded(theme.keyColor, 14f)
-            setPadding(dp(4), dp(10), dp(4), dp(10))
-            addView(text(icon, 22f))
-            addView(text(label, 12f, theme.specialTextColor))
-            setOnClickListener { onClick() }
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            addView(IconView(ctx, icon, theme.textColor, 0.6f), LinearLayout.LayoutParams(dp(34), dp(34)))
+            addView(text(label, 12f, theme.specialTextColor).apply { maxLines = 1 })
+            if (sub != null) addView(text(sub, 11f, theme.accentColor).apply { maxLines = 1 })
+            contentDescription = label
+            pressable(onClick)
         }
 
-        class Tool(val icon: String, val label: String, val run: () -> Unit)
+        class Tool(val icon: ToolIcon, val label: String, val sub: String? = null, val run: () -> Unit)
+        val oneHandedSub = when (host.oneHandedState()) { 1 -> "Left"; 2 -> "Right"; else -> "Off" }
         val actions = listOf(
-            Tool("🔢", "Numpad") { host.showLayout("numpad") },
-            Tool("🧮", "Calculator") { host.showLayout("calc") },
-            Tool("📋", "Clipboard") { host.showLayout("panel:clip") },
-            Tool("🖼️", "Stickers") { host.showLayout("panel:stickers") },
-            Tool("🔠", "Select all") { host.selectAll(); host.closePanel() },
-            Tool("📷", "Text from image") { host.openOcr() },
-            Tool("🤚", "One-handed") { host.toggleOneHanded(); host.closePanel() },
-            Tool("⚙️", "Settings") { host.openSettings() },
+            Tool(ToolIcon.NUMPAD, "Numpad") { host.showLayout("numpad") },
+            Tool(ToolIcon.CALC, "Calculator") { host.showLayout("calc") },
+            Tool(ToolIcon.CLIP, "Clipboard") { host.showLayout("panel:clip") },
+            Tool(ToolIcon.STICKER, "Stickers") { host.showLayout("panel:stickers") },
+            Tool(ToolIcon.SELECT, "Select all") { host.selectAll(); host.closePanel() },
+            Tool(ToolIcon.CAMERA, "Scan text") { host.openOcr() },
+            Tool(ToolIcon.HAND, "One-handed", oneHandedSub) { host.toggleOneHanded(); host.closePanel() },
+            Tool(ToolIcon.SETTINGS, "Settings") { host.openSettings() },
         )
         val grid = GridLayout(ctx).apply { columnCount = 4 }
         val cw = (ctx.resources.displayMetrics.widthPixels - dp(24)) / 4
         actions.forEach { t ->
-            val (i, l, a) = Triple(t.icon, t.label, t.run)
-            grid.addView(tile(i, l, a), GridLayout.LayoutParams().apply {
-                width = cw - dp(6); height = dp(72); setMargins(dp(3), dp(3), dp(3), dp(3))
+            grid.addView(tile(t.icon, t.label, t.sub, t.run), GridLayout.LayoutParams().apply {
+                width = cw - dp(6); height = dp(78); setMargins(dp(3), dp(3), dp(3), dp(3))
             })
         }
         body.addView(grid)
 
-        body.addView(text("Text styles", 13f, theme.hintColor).apply {
-            gravity = Gravity.START; setPadding(dp(4), dp(12), 0, dp(6))
+        body.addView(text("TEXT STYLES", 12f, theme.hintColor, true).apply {
+            gravity = Gravity.START; setPadding(dp(6), dp(14), 0, dp(2)); letterSpacing = 0.08f
+        })
+        body.addView(text("Pick a style, go back, then type. Select text first to restyle it.", 12f, theme.hintColor).apply {
+            gravity = Gravity.START; setPadding(dp(6), 0, dp(6), dp(8))
         })
         val styleFlow = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         var rowLayout = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }

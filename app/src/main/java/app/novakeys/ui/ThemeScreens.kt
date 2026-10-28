@@ -1,37 +1,46 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package app.novakeys.ui
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,8 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.novakeys.theme.KeyboardTheme
 import app.novakeys.theme.ThemeStore
@@ -60,53 +72,53 @@ fun ThemeGalleryScreen(onBack: () -> Unit, onEdit: (String) -> Unit) {
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf(false) }
+    var toDelete by remember { mutableStateOf<KeyboardTheme?>(null) }
 
     Page("Themes", onBack) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onEdit("new") }) { Text("Design new theme") }
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = { onEdit("new") }) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                Text("  New theme")
+            }
             OutlinedButton(onClick = { importText = ""; importError = false; showImport = true }) { Text("Import") }
         }
-        themes.forEach { t ->
-            val active = t.id == activeId
-            Card(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (active) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                ),
-            ) {
-                Column(Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            if (active) Text("In use", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                        listOf(t.background, t.keyColor, t.specialKeyColor, t.accentColor, t.textColor).forEach {
-                            ColorDot(it, 26); Spacer(Modifier.width(5.dp))
-                        }
+
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            themes.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    pair.forEach { t ->
+                        ThemeCard(
+                            t, t.id == activeId, Modifier.weight(1f),
+                            onUse = { store.setActive(t.id); version++ },
+                            onEdit = { onEdit(t.id) },
+                            onShare = {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"; putExtra(Intent.EXTRA_TEXT, store.export(t))
+                                }
+                                ctx.startActivity(Intent.createChooser(send, "Share theme"))
+                            },
+                            onDelete = { toDelete = t },
+                        )
                     }
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (!active) TextButton(onClick = { store.setActive(t.id); version++ }) { Text("Use") }
-                        TextButton(onClick = { onEdit(t.id) }) { Text(if (t.builtIn) "Customise" else "Edit") }
-                        TextButton(onClick = {
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"; putExtra(Intent.EXTRA_TEXT, store.export(t))
-                            }
-                            ctx.startActivity(Intent.createChooser(send, "Share theme"))
-                        }) { Text("Share") }
-                        if (!t.builtIn) TextButton(onClick = { store.delete(t.id); version++ }) { Text("Delete") }
-                    }
+                    if (pair.size == 1) Box(Modifier.weight(1f))
                 }
             }
         }
+    }
+
+    toDelete?.let { t ->
+        ConfirmDialog(
+            "Delete \"${t.name}\"?", "This theme will be removed from this phone.", "Delete",
+            onConfirm = { store.delete(t.id); toDelete = null; version++ },
+            onDismiss = { toDelete = null },
+        )
     }
 
     if (showImport) AlertDialog(
         onDismissRequest = { showImport = false },
         title = { Text("Import theme") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Paste a theme someone shared with you.", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(importText, { importText = it; importError = false }, Modifier.fillMaxWidth().height(160.dp), isError = importError)
                 if (importError) Text("That is not a valid theme.", color = MaterialTheme.colorScheme.error)
@@ -122,11 +134,49 @@ fun ThemeGalleryScreen(onBack: () -> Unit, onEdit: (String) -> Unit) {
     )
 }
 
+@Composable
+private fun ThemeCard(
+    t: KeyboardTheme, active: Boolean, modifier: Modifier,
+    onUse: () -> Unit, onEdit: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    Surface(
+        modifier.clickable(onClick = onUse),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = if (active) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else null,
+    ) {
+        Column {
+            MiniKeyboard(t, Modifier.fillMaxWidth())
+            Row(Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(t.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (active) Text("In use", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+                if (active) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text(if (t.builtIn) "Customise" else "Edit") }, onClick = { menu = false; onEdit() })
+                        DropdownMenuItem(text = { Text("Share") }, onClick = { menu = false; onShare() })
+                        if (!t.builtIn) DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; onDelete() })
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---- Designer -----------------------------------------------------------------------------
 
 private val fontChoices = listOf(
     "sans-serif" to "Sans", "sans-serif-medium" to "Medium", "sans-serif-condensed" to "Condensed",
     "serif" to "Serif", "monospace" to "Mono", "casual" to "Casual", "cursive" to "Cursive",
+)
+
+private val colourFields = listOf(
+    "background" to "Keyboard background", "key" to "Keys", "special" to "Function keys",
+    "accent" to "Accent (Enter, Shift)", "text" to "Letters", "specialText" to "Function key icons",
 )
 
 @Composable
@@ -139,76 +189,91 @@ fun ThemeDesignerScreen(id: String, onBack: () -> Unit) {
         else base
     }
     var t by remember { mutableStateOf(initial) }
+    var tab by remember { mutableIntStateOf(0) }
     var pickColor by remember { mutableStateOf<String?>(null) }
+    var askDiscard by remember { mutableStateOf(false) }
+    val dirty = t != initial
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) store.storeBackground(t.id, uri)?.let { name -> t = t.copy(backgroundImage = name) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Design theme") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("‹ Back") } },
-                actions = {
-                    TextButton(onClick = { val saved = store.save(t); store.setActive(saved.id); onBack() }) { Text("Save and use") }
-                },
-            )
-        },
-    ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
-            KeyboardPreview(t, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), numberRow = false)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-                OutlinedTextField(
-                    t.name, { t = t.copy(name = it) }, label = { Text("Name") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-                )
+    fun requestBack() { if (dirty) askDiscard = true else onBack() }
+    BackHandler(enabled = dirty) { askDiscard = true }
 
-                SectionHeader("Colours")
-                val fields = listOf(
-                    "background" to "Keyboard background", "key" to "Keys", "special" to "Function keys",
-                    "accent" to "Accent (Enter, Shift)", "text" to "Letters", "specialText" to "Function key icons",
-                )
-                fields.forEach { (k, label) ->
+    Page(
+        "Design theme", { requestBack() },
+        actions = {
+            TextButton(onClick = { val saved = store.save(t); store.setActive(saved.id); onBack() }) { Text("Save and use") }
+        },
+        pinned = {
+            Column {
+                KeyboardPreview(t, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), numberRow = false)
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    listOf("Colours", "Shape", "Text", "Photo").forEachIndexed { i, label ->
+                        Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
+                    }
+                }
+            }
+        },
+    ) {
+        OutlinedTextField(
+            t.name, { t = t.copy(name = it) }, label = { Text("Name") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        )
+
+        when (tab) {
+            0 -> SettingsGroup {
+                colourFields.forEachIndexed { i, (k, label) ->
+                    if (i > 0) GroupDivider()
                     Row(
-                        Modifier.fillMaxWidth().clickable { pickColor = k }.padding(horizontal = 20.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().clickable { pickColor = k }.padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(label, Modifier.weight(1f))
+                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                         ColorDot(colorOf(t, k), 30)
                     }
                 }
-
-                SectionHeader("Shape")
+            }
+            1 -> SettingsGroup {
                 SettingSlider("Corner roundness", t.keyRadiusDp, 0f..24f, { "${it.roundToInt()} dp" }, { t = t.copy(keyRadiusDp = it) })
+                GroupDivider()
                 SettingSlider("Gap between keys", t.keyGapDp, 1f..10f, { "${it.roundToInt()} dp" }, { t = t.copy(keyGapDp = it) })
+                GroupDivider()
                 SettingSlider("Key opacity", t.keyAlpha, 0.2f..1f, { "${(it * 100).roundToInt()}%" }, { t = t.copy(keyAlpha = it) })
+                GroupDivider()
                 SettingSlider("Outline", t.borderWidthDp, 0f..3f, { "%.1f dp".format(it) }, {
                     t = t.copy(borderWidthDp = it, borderColor = if (t.borderColor == 0) t.accentColor else t.borderColor)
                 })
+                GroupDivider()
                 SettingToggle("Key shadow", null, t.keyShadow) { t = t.copy(keyShadow = it) }
-
-                SectionHeader("Text")
+            }
+            2 -> SettingsGroup {
                 SettingChoice("Font", fontChoices, t.fontFamily) { t = t.copy(fontFamily = it) }
+                GroupDivider()
                 SettingToggle("Bold letters", null, t.boldText) { t = t.copy(boldText = it) }
+                GroupDivider()
                 SettingSlider("Letter size", t.textSizeSp, 14f..28f, { "${it.roundToInt()} sp" }, { t = t.copy(textSizeSp = it) })
-
-                SectionHeader("Background photo")
-                Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { imagePicker.launch("image/*") }) { Text(if (t.backgroundImage == null) "Choose photo" else "Change photo") }
+            }
+            else -> SettingsGroup(note = "Tip: lower the key opacity on the Shape tab so the photo shows through the keys.") {
+                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { imagePicker.launch("image/*") }) {
+                        Text(if (t.backgroundImage == null) "Choose photo" else "Change photo")
+                    }
                     if (t.backgroundImage != null) OutlinedButton(onClick = { t = t.copy(backgroundImage = null) }) { Text("Remove") }
                 }
                 if (t.backgroundImage != null) {
+                    GroupDivider()
                     SettingSlider("Darken photo", t.backgroundDim, 0f..0.8f, { "${(it * 100).roundToInt()}%" }, { t = t.copy(backgroundDim = it) })
-                    Text(
-                        "Tip: lower the key opacity so the photo shows through the keys.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
                 }
             }
         }
     }
+
+    if (askDiscard) ConfirmDialog(
+        "Discard changes?", "Your edits to this theme have not been saved.", "Discard",
+        onConfirm = { askDiscard = false; onBack() }, onDismiss = { askDiscard = false },
+    )
 
     pickColor?.let { key ->
         ColorPickerDialog(
@@ -252,6 +317,11 @@ private fun readableOn(c: Int): Int {
     return if (0.299 * r + 0.587 * g + 0.114 * b > 150) 0xFF111111.toInt() else 0xFFFFFFFF.toInt()
 }
 
+private val swatches: List<Int> = listOf(
+    0xFF000000, 0xFF111318, 0xFF2A2F38, 0xFF5B5BF0, 0xFF7C83FF, 0xFF3DD6F5, 0xFF14A37F, 0xFF00E0A4,
+    0xFFFFC857, 0xFFFF9A5C, 0xFFE0486F, 0xFFFF5FC8, 0xFFFFFFFF, 0xFFE7EAF1, 0xFFF6E4E8, 0xFFDDEFE8,
+).map { it.toInt() }
+
 @Composable
 private fun ColorPickerDialog(initial: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     var r by remember { mutableStateOf(((initial shr 16) and 0xFF).toFloat()) }
@@ -260,18 +330,26 @@ private fun ColorPickerDialog(initial: Int, onDismiss: () -> Unit, onPick: (Int)
     val color = (0xFF shl 24) or (r.roundToInt() shl 16) or (g.roundToInt() shl 8) or b.roundToInt()
     var hex by remember { mutableStateOf("%06X".format(color and 0xFFFFFF)) }
 
+    fun setAll(c: Int) {
+        r = ((c shr 16) and 0xFF).toFloat(); g = ((c shr 8) and 0xFF).toFloat(); b = (c and 0xFF).toFloat()
+        hex = "%06X".format(c and 0xFFFFFF)
+    }
     fun syncHex() { hex = "%06X".format(color and 0xFFFFFF) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pick a colour") },
         text = {
-            Column {
-                androidx.compose.foundation.layout.Box(
-                    Modifier.fillMaxWidth().height(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(androidx.compose.ui.graphics.Color(color)),
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Color(color)))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    swatches.forEach { c ->
+                        Box(
+                            Modifier.size(34.dp).clip(CircleShape).background(Color(c))
+                                .clickable { setAll(c) },
+                        )
+                    }
+                }
                 Slider(r, { r = it; syncHex() }, valueRange = 0f..255f)
                 Slider(g, { g = it; syncHex() }, valueRange = 0f..255f)
                 Slider(b, { b = it; syncHex() }, valueRange = 0f..255f)
